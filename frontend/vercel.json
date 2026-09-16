@@ -1,18 +1,7 @@
 {
-  "framework": {
-    "name": "nextjs",
-    "slug": "nextjs"
-  },
+  "framework": "nextjs",
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "outputDirectory": ".next",
-  "env": [
-    {
-      "key": "NEXT_PUBLIC_API_URL",
-      "value": "https://your-internship-api.onrender.com",
-      "target": ["production", "preview"],
-      "type": "plain"
-    }
-  ]
+  "outputDirectory": ".next"
 }
