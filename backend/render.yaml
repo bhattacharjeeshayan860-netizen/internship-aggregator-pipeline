@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: internship-aggregator-api
+    runtime: python
+    rootDir: job_scraper/backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: PORT
+        value: 10000
+    # Health check — Render pings this to confirm the service is alive
+    healthCheckPath: /health
+    # Auto-deploy on push to main
+    autoDeploy: true
