@@ -56,7 +56,6 @@ GREENHOUSE_COMPANIES: list[str] = [
     "stripe",
     "brex",
     "ramp",
-    "plaid",
     "robinhood",
     "coinbase",
     "mercury",

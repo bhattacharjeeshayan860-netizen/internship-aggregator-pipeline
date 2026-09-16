@@ -57,7 +57,6 @@ LEVER_COMPANIES: list[str] = [
     "properly",
     # ── UK / Europe 🇬🇧🇪🇺 ────────────────────────────────────────────────
     "monzo",
-    "wise",
     "cleo",
     "tractable",
     "causaly",

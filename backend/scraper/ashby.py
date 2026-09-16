@@ -48,9 +48,6 @@ ASHBY_COMPANIES: list[str] = [
     "liveblocks",
     # ── UK / Europe 🇬🇧🇪🇺 ────────────────────────────────────────────────
     "causaly",
-    "tractable",
-    "synthesia",
-    "wayve",
     # ── Singapore 🇸🇬 ─────────────────────────────────────────────────────
     "sea-group",
 ]

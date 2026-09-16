@@ -28,12 +28,18 @@ USER_AGENTS = [
 
 
 def get_headers() -> dict[str, str]:
-    """Return a dict of realistic browser HTTP headers with a rotated User-Agent."""
+    """Return browser-realistic HTTP headers with a rotated User-Agent.
+
+    Accept-Encoding is intentionally omitted — httpx manages this header
+    internally and registers its own gzip/brotli decompressor. If we set
+    it manually, the server may return a compressed body that httpx never
+    decompresses, causing resp.json() to crash with a UTF-8 decode error
+    (the classic '0x8b at position 0' gzip magic-byte symptom).
+    """
     return {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
         "DNT": "1",
         "Connection": "keep-alive",
         "Sec-Fetch-Dest": "empty",
