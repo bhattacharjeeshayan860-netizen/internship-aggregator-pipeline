@@ -1,5 +1,11 @@
 /**
- * SWR data-fetching hook + typed interfaces for the FastAPI backend.
+ * SWR data-fetching hook + typed interfaces.
+ *
+ * All requests go to the local Next.js API routes (/api/internships, /api/internships/refresh),
+ * which proxy to the Render backend server-side. This means:
+ *  - No NEXT_PUBLIC_ env var needed — API_URL stays server-only
+ *  - The Render URL is never shipped to the browser bundle
+ *  - CORS is a non-issue (same-origin requests from client to Next.js)
  */
 
 import useSWR from "swr";
@@ -25,10 +31,6 @@ export interface ScrapeResult {
   cache_hit: boolean;
 }
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-  "http://localhost:10000";
-
 const fetcher = (url: string) =>
   fetch(url).then((res) => {
     if (!res.ok) throw new Error(`API error ${res.status}`);
@@ -36,8 +38,7 @@ const fetcher = (url: string) =>
   });
 
 /**
- * Hook that polls /api/internships every 5 minutes.
- * Supports optional server-side filter params.
+ * Hook that polls /api/internships (local Next.js proxy) every 5 minutes.
  */
 export function useInternships(params?: {
   min_score?: number;
@@ -49,7 +50,8 @@ export function useInternships(params?: {
   if (params?.work_mode) query.set("work_mode", params.work_mode);
   if (params?.source) query.set("source", params.source);
 
-  const url = `${API_BASE}/api/internships${query.size ? `?${query}` : ""}`;
+  // Calls the local Next.js API route — no hardcoded Render URL in client code
+  const url = `/api/internships${query.size ? `?${query}` : ""}`;
 
   return useSWR<ScrapeResult>(url, fetcher, {
     refreshInterval: 5 * 60 * 1000, // 5 min
@@ -59,7 +61,7 @@ export function useInternships(params?: {
 }
 
 export async function triggerRefresh(): Promise<ScrapeResult> {
-  const res = await fetch(`${API_BASE}/api/internships/refresh`);
+  const res = await fetch("/api/internships/refresh");
   if (!res.ok) throw new Error(`Refresh failed: ${res.status}`);
   return res.json();
 }

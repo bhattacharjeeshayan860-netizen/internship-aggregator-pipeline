@@ -189,11 +189,11 @@ export default function Home() {
         <div className="flex items-center gap-3 rounded-xl border border-rose-900 bg-rose-950/50 px-4 py-3 text-sm text-rose-300">
           <AlertCircle className="h-5 w-5 shrink-0" />
           <span>
-            Could not reach the API. Make sure your backend is running and{" "}
+            Could not reach the API. Make sure your backend is running and the{" "}
             <code className="rounded bg-rose-900/50 px-1 font-mono text-xs">
-              NEXT_PUBLIC_API_URL
+              API_URL
             </code>{" "}
-            is set correctly.
+            environment variable is set in Vercel.
           </span>
         </div>
       )}
