@@ -1,18 +1,21 @@
 """Ashby ATS scraper — api.ashbyhq.com/posting-api/job-board/{slug}
 
-Ashby exposes a clean JSON endpoint per company that returns all active job postings.
-This is common among newer AI-native startups (Mistral, Perplexity, Modal, etc.).
+All companies are fetched concurrently (up to MAX_CONCURRENT at once).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
+MAX_CONCURRENT = 10
+
+# Verified Ashby slugs
 ASHBY_COMPANIES: list[str] = [
-    # ── Cutting-edge AI Labs ──────────────────────────────────────────────────
+    # ── Cutting-edge AI Labs ───────────────────────────────────────────────
     "mistral",
     "perplexity",
     "imbue",
@@ -21,20 +24,17 @@ ASHBY_COMPANIES: list[str] = [
     "together-computer",
     "modal-labs",
     "anyscale",
-    "fixie",
-    "cohere",
-    "krea",
     "pika",
     "suno",
-    # ── MLOps / LLMOps ───────────────────────────────────────────────────────
+    "cohere",
+    # ── MLOps / LLMOps ────────────────────────────────────────────────────
     "weights-biases",
     "evidently-ai",
     "whylabs",
-    "neptune",
     "bentoml",
     "truera",
     "arize",
-    # ── Dev Tools / Infra ─────────────────────────────────────────────────────
+    # ── Dev Tools / Infra ──────────────────────────────────────────────────
     "temporal",
     "buf",
     "turso",
@@ -42,21 +42,16 @@ ASHBY_COMPANIES: list[str] = [
     "airplane",
     "braintrust",
     "baseten",
-    # ── Product / SaaS ────────────────────────────────────────────────────────
+    # ── Product / SaaS ─────────────────────────────────────────────────────
     "linear",
     "retool",
     "liveblocks",
-    "trigger",
-    # ── Canada 🇨🇦 / APAC ───────────────────────────────────────────────────
-    "d2l",
-    "caseware",
-    # ── UK / Europe 🇬🇧🇪🇺 ──────────────────────────────────────────────────
+    # ── UK / Europe 🇬🇧🇪🇺 ────────────────────────────────────────────────
     "causaly",
     "tractable",
     "synthesia",
     "wayve",
-    "deepmind",
-    # ── Singapore 🇸🇬 ────────────────────────────────────────────────────────
+    # ── Singapore 🇸🇬 ─────────────────────────────────────────────────────
     "sea-group",
 ]
 
@@ -66,19 +61,25 @@ class AshbyScraper(BaseScraper):
     BASE_URL = "https://api.ashbyhq.com/posting-api/job-board/{slug}"
 
     async def fetch(self) -> list[dict]:
-        jobs: list[dict] = []
-        for slug in ASHBY_COMPANIES:
-            try:
-                data = await self._get(self.BASE_URL.format(slug=slug))
-                raw_jobs: list[dict] = (
-                    data.get("jobPostings", []) if isinstance(data, dict) else []
-                )
-                for job in raw_jobs:
-                    jobs.append(self._normalise(job, slug))
-                if raw_jobs:
-                    logger.info(f"[ashby] {slug}: {len(raw_jobs)} jobs")
-            except Exception as exc:
-                logger.warning(f"[ashby] {slug} failed: {exc}")
+        sem = asyncio.Semaphore(MAX_CONCURRENT)
+
+        async def fetch_one(slug: str) -> list[dict]:
+            async with sem:
+                try:
+                    data = await self._get(self.BASE_URL.format(slug=slug))
+                    raw: list[dict] = (
+                        data.get("jobPostings", []) if isinstance(data, dict) else []
+                    )
+                    if raw:
+                        logger.info(f"[ashby] {slug}: {len(raw)} jobs")
+                    return [self._normalise(j, slug) for j in raw]
+                except Exception as exc:
+                    logger.warning(f"[ashby] {slug} exception: {exc}")
+                    return []
+
+        results = await asyncio.gather(*[fetch_one(s) for s in ASHBY_COMPANIES])
+        jobs = [job for batch in results for job in batch]
+        logger.info(f"[ashby] total: {len(jobs)} jobs from {len(ASHBY_COMPANIES)} targets")
         return jobs
 
     @staticmethod

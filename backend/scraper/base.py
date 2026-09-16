@@ -35,23 +35,36 @@ class BaseScraper(ABC):
             await self.client.aclose()
 
     async def _get(self, url: str, **kwargs: Any) -> dict[str, Any] | list:
-        """GET with UA rotation, randomised delay, and exponential-backoff retry."""
+        """GET with UA rotation and exponential-backoff retry.
+
+        Delays only happen between retries (not on every request).
+        Concurrency throttling is handled by the caller via asyncio.Semaphore.
+        404 responses are treated as a dead slug — logged at DEBUG and returned
+        immediately without wasting retry budget.
+        """
         last_exc: Exception | None = None
+        broke_early = False
+
         for attempt in range(self.MAX_RETRIES):
             try:
-                await asyncio.sleep(random.uniform(0.5, 2.5))
                 resp = await self.client.get(url, headers=get_headers(), **kwargs)  # type: ignore[union-attr]
                 resp.raise_for_status()
                 return resp.json()
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
                 status = exc.response.status_code
+                if status == 404:
+                    # Dead slug — not worth retrying
+                    logger.debug(f"[{self.NAME}] 404 (invalid slug): {url}")
+                    broke_early = True
+                    break
                 if status == 429 or status >= 500:
                     wait = (2 ** attempt) + random.uniform(0, 1)
                     logger.warning(f"[{self.NAME}] HTTP {status} on {url} — retry in {wait:.1f}s")
                     await asyncio.sleep(wait)
                 else:
-                    logger.error(f"[{self.NAME}] HTTP {status} for {url}")
+                    logger.warning(f"[{self.NAME}] HTTP {status} for {url} — skipping")
+                    broke_early = True
                     break
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 last_exc = exc
@@ -61,9 +74,11 @@ class BaseScraper(ABC):
             except Exception as exc:
                 last_exc = exc
                 logger.error(f"[{self.NAME}] Unexpected error for {url}: {exc}")
+                broke_early = True
                 break
 
-        logger.error(f"[{self.NAME}] All retries exhausted for {url}: {last_exc}")
+        if not broke_early:
+            logger.warning(f"[{self.NAME}] Retries exhausted for {url}")
         return {}
 
     async def _post(self, url: str, json: dict, **kwargs: Any) -> dict[str, Any] | list:

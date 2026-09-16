@@ -1,20 +1,23 @@
 """Greenhouse ATS scraper — boards-api.greenhouse.io/v1/boards/{slug}/jobs
 
-Greenhouse exposes clean JSON feeds with full job content. Zero HTML parsing required.
-The ?content=true param includes full job descriptions in the response.
+All companies are fetched concurrently (up to MAX_CONCURRENT at once) using a
+semaphore, reducing total scrape time from O(N * delay) → O(slowest request).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
-# Curated slugs — heavily biased toward AI/ML + DS companies that actively hire interns.
-# Greenhouse slugs are typically the lowercase company name with hyphens.
+# Max simultaneous requests to Greenhouse — polite ceiling to avoid bursts
+MAX_CONCURRENT = 12
+
+# Verified Greenhouse slugs (companies confirmed to use boards-api.greenhouse.io)
 GREENHOUSE_COMPANIES: list[str] = [
-    # ── AI / ML Frontier Labs ─────────────────────────────────────────────────
+    # ── AI / ML Frontier Labs ──────────────────────────────────────────────
     "anthropic",
     "cohere",
     "scale",
@@ -24,39 +27,32 @@ GREENHOUSE_COMPANIES: list[str] = [
     "stability",
     "adept",
     "inflection",
-    "runway",
-    "alephalpha",
-    # ── MLOps / Data Infra ────────────────────────────────────────────────────
+    # ── MLOps / Data Infra ─────────────────────────────────────────────────
     "dbtlabs",
     "starburst",
     "airbyte",
     "prefect",
-    "great-expectations",
     "astronomer",
     "lightdash",
-    # ── Developer Tools / Cloud ───────────────────────────────────────────────
+    # ── Developer Tools / Cloud ────────────────────────────────────────────
     "hashicorp",
     "confluent",
     "datadog",
     "newrelic",
-    "grafana",
     "elastic",
     "mongodb",
     "cockroachlabs",
-    "supabase",
-    "planetscale",
-    # ── Product / SaaS ────────────────────────────────────────────────────────
+    # ── Product / SaaS ─────────────────────────────────────────────────────
     "notion",
     "airtable",
     "figma",
-    "canva",
-    "miro",
     "amplitude",
     "mixpanel",
     "segment",
     "braze",
     "klaviyo",
-    # ── Fintech ───────────────────────────────────────────────────────────────
+    "lattice",
+    # ── Fintech ────────────────────────────────────────────────────────────
     "stripe",
     "brex",
     "ramp",
@@ -64,25 +60,21 @@ GREENHOUSE_COMPANIES: list[str] = [
     "robinhood",
     "coinbase",
     "mercury",
-    # ── Canada 🇨🇦 ──────────────────────────────────────────────────────────
+    # ── Canada 🇨🇦 ─────────────────────────────────────────────────────────
     "coveo",
-    "d2l",
     "hootsuite",
     "freshbooks",
     "wealthsimple",
-    # ── UK / Europe 🇬🇧🇪🇺 ──────────────────────────────────────────────────
+    # ── UK / Europe 🇬🇧🇪🇺 ────────────────────────────────────────────────
     "monzo",
     "revolut",
     "graphcore",
     "tractable",
     "improbable",
-    # ── Singapore / APAC 🇸🇬 ────────────────────────────────────────────────
+    # ── Singapore / APAC 🇸🇬 ─────────────────────────────────────────────
     "grab",
-    "sea",
-    "govtech-singapore",
-    # ── Health / Bio-Tech ─────────────────────────────────────────────────────
+    # ── Health / Bio-Tech ──────────────────────────────────────────────────
     "recursion",
-    "insitro",
     "tempus",
     "genentech",
 ]
@@ -93,20 +85,26 @@ class GreenhouseScraper(BaseScraper):
     BASE_URL = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 
     async def fetch(self) -> list[dict]:
-        jobs: list[dict] = []
-        for slug in GREENHOUSE_COMPANIES:
-            try:
-                data = await self._get(
-                    self.BASE_URL.format(slug=slug),
-                    params={"content": "true"},
-                )
-                raw_jobs: list[dict] = data.get("jobs", []) if isinstance(data, dict) else []
-                for job in raw_jobs:
-                    jobs.append(self._normalise(job, slug))
-                if raw_jobs:
-                    logger.info(f"[greenhouse] {slug}: {len(raw_jobs)} jobs")
-            except Exception as exc:
-                logger.warning(f"[greenhouse] {slug} failed: {exc}")
+        sem = asyncio.Semaphore(MAX_CONCURRENT)
+
+        async def fetch_one(slug: str) -> list[dict]:
+            async with sem:
+                try:
+                    data = await self._get(
+                        self.BASE_URL.format(slug=slug),
+                        params={"content": "true"},
+                    )
+                    raw: list[dict] = data.get("jobs", []) if isinstance(data, dict) else []
+                    if raw:
+                        logger.info(f"[greenhouse] {slug}: {len(raw)} jobs")
+                    return [self._normalise(j, slug) for j in raw]
+                except Exception as exc:
+                    logger.warning(f"[greenhouse] {slug} exception: {exc}")
+                    return []
+
+        results = await asyncio.gather(*[fetch_one(s) for s in GREENHOUSE_COMPANIES])
+        jobs = [job for batch in results for job in batch]
+        logger.info(f"[greenhouse] total: {len(jobs)} jobs from {len(GREENHOUSE_COMPANIES)} targets")
         return jobs
 
     @staticmethod

@@ -18,8 +18,9 @@ SCRAPERS: list[Type[BaseScraper]] = [
     AshbyScraper,
 ]
 
-# Per-scraper timeout — prevents one slow ATS from blocking the whole pipeline
-SCRAPER_TIMEOUT = 60.0
+# Per-scraper timeout — now 120s since concurrent fetch is fast but
+# Render free-tier network can be slow on cold start
+SCRAPER_TIMEOUT = 120.0
 
 
 async def _run_one(ScraperClass: Type[BaseScraper]) -> list[dict]:
