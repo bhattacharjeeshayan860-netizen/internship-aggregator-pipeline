@@ -9,6 +9,7 @@ import {
   createColumnHelper,
   type SortingState,
   type ColumnFiltersState,
+  type ColumnDef,
 } from "@tanstack/react-table";
 import { useState, useMemo } from "react";
 import { ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
@@ -28,13 +29,13 @@ const columnHelper = createColumnHelper<JobListing>();
 
 const SOURCE_COLORS: Record<string, string> = {
   greenhouse: "bg-green-950 text-green-300 ring-green-800",
-  lever:      "bg-purple-950 text-purple-300 ring-purple-800",
-  ashby:      "bg-sky-950 text-sky-300 ring-sky-800",
+  lever: "bg-purple-950 text-purple-300 ring-purple-800",
+  ashby: "bg-sky-950 text-sky-300 ring-sky-800",
 };
 
 const WORK_MODE_COLORS: Record<string, string> = {
-  Remote:   "bg-blue-950 text-blue-300",
-  Hybrid:   "bg-violet-950 text-violet-300",
+  Remote: "bg-blue-950 text-blue-300",
+  Hybrid: "bg-violet-950 text-violet-300",
   "On-site": "bg-slate-800 text-slate-300",
 };
 
@@ -44,127 +45,115 @@ function SortIcon({ isSorted }: { isSorted: false | "asc" | "desc" }) {
   return <ChevronsUpDown className="ml-1 inline h-3.5 w-3.5 opacity-30" />;
 }
 
+// Base columns — always shown
+const BASE_COLUMNS: ColumnDef<JobListing, unknown>[] = [
+  columnHelper.accessor("company", {
+    header: "Company",
+    cell: (info) => (
+      <span className="font-medium text-slate-200">{info.getValue() as string}</span>
+    ),
+  }),
+  columnHelper.accessor("title", {
+    header: "Role",
+    cell: (info) => <span className="text-slate-300">{info.getValue() as string}</span>,
+  }),
+  columnHelper.accessor("tech_score", {
+    header: "Score",
+    cell: (info) => (
+      <ScoreBadge
+        score={info.getValue() as number}
+        keywords={info.row.original.matched_keywords}
+      />
+    ),
+  }),
+  columnHelper.accessor("stipend_estimate", {
+    header: "Stipend",
+    cell: (info) => (
+      <span className="font-mono text-xs text-slate-400">{info.getValue() as string}</span>
+    ),
+  }),
+  columnHelper.accessor("location", {
+    header: "Location",
+    cell: (info) => (
+      <span className="text-sm text-slate-400">{(info.getValue() as string) || "—"}</span>
+    ),
+  }),
+  columnHelper.accessor("work_mode", {
+    header: "Mode",
+    cell: (info) => {
+      const mode = info.getValue() as string;
+      return (
+        <span
+          className={clsx(
+            "rounded-full px-2 py-0.5 text-xs font-medium",
+            WORK_MODE_COLORS[mode] ?? "bg-slate-800 text-slate-300"
+          )}
+        >
+          {mode}
+        </span>
+      );
+    },
+  }),
+  columnHelper.accessor("source", {
+    header: "ATS",
+    cell: (info) => {
+      const src = info.getValue() as string;
+      return (
+        <span
+          className={clsx(
+            "rounded-full px-2 py-0.5 text-xs font-medium ring-1",
+            SOURCE_COLORS[src] ?? "bg-slate-800 text-slate-300 ring-slate-700"
+          )}
+        >
+          {src}
+        </span>
+      );
+    },
+  }),
+  columnHelper.accessor("apply_url", {
+    header: "Apply",
+    enableSorting: false,
+    cell: (info) => (
+      <a
+        href={info.getValue() as string}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={clsx(
+          "inline-flex items-center gap-1 rounded-lg border border-blue-700 px-3 py-1",
+          "text-xs font-medium text-blue-400",
+          "hover:border-blue-500 hover:bg-blue-950 hover:text-blue-200 transition-colors"
+        )}
+      >
+        Apply <ExternalLink className="h-3 w-3" />
+      </a>
+    ),
+  }),
+];
+
 export default function JobTable({ data, globalFilter, matchScores }: JobTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "tech_score", desc: true },
   ]);
   const [columnFilters] = useState<ColumnFiltersState>([]);
 
-  const columns = useMemo(
-    () => {
-      const base = [
-        columnHelper.accessor("company", {
-          header: "Company",
-          cell: (info) => (
-            <span className="font-medium text-slate-200">{info.getValue()}</span>
-          ),
-        }),
+  // Build column list — insert Match column after Score when resume scores are present
+  const columns = useMemo((): ColumnDef<JobListing, unknown>[] => {
+    if (!matchScores || matchScores.size === 0) return BASE_COLUMNS;
 
-        columnHelper.accessor("title", {
-          header: "Role",
-          cell: (info) => (
-            <span className="text-slate-300">{info.getValue()}</span>
-          ),
-        }),
+    const matchCol: ColumnDef<JobListing, unknown> = columnHelper.display({
+      id: "match_score",
+      header: "Match",
+      cell: (info) => {
+        const ms = matchScores.get(info.row.original.id);
+        return ms ? <MatchBadge score={ms} /> : null;
+      },
+    });
 
-      columnHelper.accessor("tech_score", {
-        header: "Score",
-        cell: (info) => (
-          <ScoreBadge
-            score={info.getValue()}
-            keywords={info.row.original.matched_keywords}
-          />
-        ),
-      }),
-
-      columnHelper.accessor("stipend_estimate", {
-        header: "Stipend",
-        cell: (info) => (
-          <span className="font-mono text-xs text-slate-400">
-            {info.getValue()}
-          </span>
-        ),
-      }),
-
-      columnHelper.accessor("location", {
-        header: "Location",
-        cell: (info) => (
-          <span className="text-sm text-slate-400">{info.getValue() || "—"}</span>
-        ),
-      }),
-
-      columnHelper.accessor("work_mode", {
-        header: "Mode",
-        cell: (info) => {
-          const mode = info.getValue();
-          return (
-            <span
-              className={clsx(
-                "rounded-full px-2 py-0.5 text-xs font-medium",
-                WORK_MODE_COLORS[mode] ?? "bg-slate-800 text-slate-300"
-              )}
-            >
-              {mode}
-            </span>
-          );
-        },
-      }),
-
-      columnHelper.accessor("source", {
-        header: "ATS",
-        cell: (info) => {
-          const src = info.getValue();
-          return (
-            <span
-              className={clsx(
-                "rounded-full px-2 py-0.5 text-xs font-medium ring-1",
-                SOURCE_COLORS[src] ?? "bg-slate-800 text-slate-300 ring-slate-700"
-              )}
-            >
-              {src}
-            </span>
-          );
-        },
-      }),
-
-      columnHelper.accessor("apply_url", {
-          header: "Apply",
-          enableSorting: false,
-          cell: (info) => (
-            <a
-              href={info.getValue()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={clsx(
-                "inline-flex items-center gap-1 rounded-lg border border-blue-700 px-3 py-1",
-                "text-xs font-medium text-blue-400",
-                "hover:border-blue-500 hover:bg-blue-950 hover:text-blue-200 transition-colors"
-              )}
-            >
-              Apply <ExternalLink className="h-3 w-3" />
-            </a>
-          ),
-        }),
-      ];
-
-      // Insert Match column after Score when resume scores are available
-      if (matchScores && matchScores.size > 0) {
-        const matchCol = columnHelper.display({
-          id: "match_score",
-          header: "Match",
-          cell: (info) => {
-            const ms = matchScores.get(info.row.original.id);
-            return ms ? <MatchBadge score={ms} /> : null;
-          },
-        });
-        // Insert after index 2 (after Score)
-        base.splice(3, 0, matchCol);
-      }
-
-      return base;
-    },
-    [matchScores]
-  );
+    // Insert Match after index 2 (after Score column)
+    const cols = [...BASE_COLUMNS];
+    cols.splice(3, 0, matchCol);
+    return cols;
+  }, [matchScores]);
 
   const table = useReactTable({
     data,
@@ -217,7 +206,7 @@ export default function JobTable({ data, globalFilter, matchScores }: JobTablePr
               <tr
                 key={row.id}
                 className={clsx(
-                  "job-row border-b border-slate-800/50 last:border-0",
+                  "border-b border-slate-800/50 last:border-0",
                   i % 2 === 0 ? "bg-slate-950" : "bg-slate-900/50"
                 )}
               >

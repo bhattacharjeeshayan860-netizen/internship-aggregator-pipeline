@@ -9,6 +9,7 @@
  */
 
 import useSWR from "swr";
+import type { CandidateProfile } from "@/lib/matcher";
 
 export interface JobListing {
   id: string;
@@ -70,7 +71,7 @@ export async function triggerRefresh(): Promise<ScrapeResult> {
  * Upload a PDF resume and return the structured CandidateProfile.
  * Throws on network error or non-2xx response.
  */
-export async function uploadResume(file: File): Promise<import("@/lib/matcher").CandidateProfile> {
+export async function uploadResume(file: File): Promise<CandidateProfile> {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch("/api/resume", { method: "POST", body: form });
