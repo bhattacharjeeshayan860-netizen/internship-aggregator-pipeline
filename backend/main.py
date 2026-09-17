@@ -19,12 +19,15 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from models.schemas import JobListing, ScrapeResult
+from models.resume import CandidateProfile
 from parser.filters import passes_all_filters, determine_work_mode
 from parser.scorer import score_job
+from resume.extractor import extract_text_from_pdf, MAX_PDF_BYTES
+from resume.parser import parse_candidate_profile
 from scraper.manager import run_all_scrapers
 from utils.cache import job_cache
 from utils.dedup import deduplicate
@@ -111,7 +114,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Tighten to your Vercel domain in production
     allow_credentials=True,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -188,3 +191,63 @@ async def refresh_internships():
         scraped_at=datetime.now(timezone.utc),
         cache_hit=False,
     )
+
+
+# ── Resume ────────────────────────────────────────────────────────────────────
+
+
+@app.post("/resume/upload", response_model=CandidateProfile, tags=["resume"])
+async def upload_resume(file: UploadFile = File(...)):
+    """
+    Accept a PDF resume, extract text, return a structured CandidateProfile.
+
+    The file is processed entirely in memory and immediately discarded —
+    nothing is stored to disk, logged, or persisted.
+
+    Limits:
+      - PDF only (MIME type checked)
+      - Max 4 MB
+    """
+    # ── Validate MIME type ────────────────────────────────────────────────────
+    if file.content_type not in ("application/pdf", "application/x-pdf"):
+        raise HTTPException(
+            status_code=415,
+            detail="Only PDF files are accepted. Please upload a .pdf resume.",
+        )
+
+    # ── Read bytes ────────────────────────────────────────────────────────────
+    pdf_bytes = await file.read()
+
+    if len(pdf_bytes) > MAX_PDF_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_PDF_BYTES // (1024*1024)} MB.",
+        )
+
+    # ── Extract text ──────────────────────────────────────────────────────────
+    try:
+        text = extract_text_from_pdf(pdf_bytes)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not read this PDF: {exc}",
+        )
+
+    if not text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "No readable text found in this PDF. "
+                "If the resume is image-based (scanned), please use a text-based PDF."
+            ),
+        )
+
+    # ── Parse profile (bytes discarded after this line) ───────────────────────
+    profile = parse_candidate_profile(text)
+    logger.info(
+        "Resume processed: %d skills, %d roles extracted",
+        len(profile.skills),
+        len(profile.roles),
+    )
+    return profile
+

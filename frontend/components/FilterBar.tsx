@@ -8,6 +8,7 @@ export interface FilterState {
   workMode: string;
   source: string;
   minScore: number;
+  location: string;
 }
 
 interface FilterBarProps {
@@ -20,6 +21,16 @@ interface FilterBarProps {
 const WORK_MODES = ["All", "Remote", "Hybrid", "On-site"];
 const SOURCES = ["All", "greenhouse", "lever", "ashby"];
 const SCORE_THRESHOLDS = [0, 20, 40, 60, 80];
+const LOCATIONS = [
+  "All",
+  "Remote",
+  "Singapore",
+  "India",
+  "United States",
+  "United Kingdom",
+  "Canada",
+  "Europe",
+];
 
 export default function FilterBar({
   filters,
@@ -114,14 +125,31 @@ export default function FilterBar({
           ))}
         </select>
 
+        {/* Location */}
+        <select
+          value={filters.location}
+          onChange={(e) => onChange({ location: e.target.value })}
+          className={clsx(
+            "rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200",
+            "focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          )}
+        >
+          {LOCATIONS.map((l) => (
+            <option key={l} value={l}>
+              {l === "All" ? "All locations" : l}
+            </option>
+          ))}
+        </select>
+
         {/* Active filter chips */}
         {(filters.workMode !== "All" ||
           filters.source !== "All" ||
           filters.minScore > 0 ||
+          filters.location !== "All" ||
           filters.search) && (
           <button
             onClick={() =>
-              onChange({ search: "", workMode: "All", source: "All", minScore: 0 })
+              onChange({ search: "", workMode: "All", source: "All", minScore: 0, location: "All" })
             }
             className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
           >

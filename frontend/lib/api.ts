@@ -65,3 +65,19 @@ export async function triggerRefresh(): Promise<ScrapeResult> {
   if (!res.ok) throw new Error(`Refresh failed: ${res.status}`);
   return res.json();
 }
+
+/**
+ * Upload a PDF resume and return the structured CandidateProfile.
+ * Throws on network error or non-2xx response.
+ */
+export async function uploadResume(file: File): Promise<import("@/lib/matcher").CandidateProfile> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/resume", { method: "POST", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail ?? `Upload failed (${res.status})`);
+  }
+  return res.json();
+}
+

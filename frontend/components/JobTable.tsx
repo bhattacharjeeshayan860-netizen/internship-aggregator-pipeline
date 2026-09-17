@@ -14,11 +14,14 @@ import { useState, useMemo } from "react";
 import { ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { clsx } from "clsx";
 import type { JobListing } from "@/lib/api";
+import type { MatchScore } from "@/lib/matcher";
 import ScoreBadge from "./ScoreBadge";
+import MatchBadge from "./MatchBadge";
 
 interface JobTableProps {
   data: JobListing[];
   globalFilter: string;
+  matchScores?: Map<string, MatchScore>;
 }
 
 const columnHelper = createColumnHelper<JobListing>();
@@ -41,27 +44,28 @@ function SortIcon({ isSorted }: { isSorted: false | "asc" | "desc" }) {
   return <ChevronsUpDown className="ml-1 inline h-3.5 w-3.5 opacity-30" />;
 }
 
-export default function JobTable({ data, globalFilter }: JobTableProps) {
+export default function JobTable({ data, globalFilter, matchScores }: JobTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "tech_score", desc: true },
   ]);
   const [columnFilters] = useState<ColumnFiltersState>([]);
 
   const columns = useMemo(
-    () => [
-      columnHelper.accessor("company", {
-        header: "Company",
-        cell: (info) => (
-          <span className="font-medium text-slate-200">{info.getValue()}</span>
-        ),
-      }),
+    () => {
+      const base = [
+        columnHelper.accessor("company", {
+          header: "Company",
+          cell: (info) => (
+            <span className="font-medium text-slate-200">{info.getValue()}</span>
+          ),
+        }),
 
-      columnHelper.accessor("title", {
-        header: "Role",
-        cell: (info) => (
-          <span className="text-slate-300">{info.getValue()}</span>
-        ),
-      }),
+        columnHelper.accessor("title", {
+          header: "Role",
+          cell: (info) => (
+            <span className="text-slate-300">{info.getValue()}</span>
+          ),
+        }),
 
       columnHelper.accessor("tech_score", {
         header: "Score",
@@ -124,25 +128,42 @@ export default function JobTable({ data, globalFilter }: JobTableProps) {
       }),
 
       columnHelper.accessor("apply_url", {
-        header: "Apply",
-        enableSorting: false,
-        cell: (info) => (
-          <a
-            href={info.getValue()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={clsx(
-              "inline-flex items-center gap-1 rounded-lg border border-blue-700 px-3 py-1",
-              "text-xs font-medium text-blue-400",
-              "hover:border-blue-500 hover:bg-blue-950 hover:text-blue-200 transition-colors"
-            )}
-          >
-            Apply <ExternalLink className="h-3 w-3" />
-          </a>
-        ),
-      }),
-    ],
-    []
+          header: "Apply",
+          enableSorting: false,
+          cell: (info) => (
+            <a
+              href={info.getValue()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={clsx(
+                "inline-flex items-center gap-1 rounded-lg border border-blue-700 px-3 py-1",
+                "text-xs font-medium text-blue-400",
+                "hover:border-blue-500 hover:bg-blue-950 hover:text-blue-200 transition-colors"
+              )}
+            >
+              Apply <ExternalLink className="h-3 w-3" />
+            </a>
+          ),
+        }),
+      ];
+
+      // Insert Match column after Score when resume scores are available
+      if (matchScores && matchScores.size > 0) {
+        const matchCol = columnHelper.display({
+          id: "match_score",
+          header: "Match",
+          cell: (info) => {
+            const ms = matchScores.get(info.row.original.id);
+            return ms ? <MatchBadge score={ms} /> : null;
+          },
+        });
+        // Insert after index 2 (after Score)
+        base.splice(3, 0, matchCol);
+      }
+
+      return base;
+    },
+    [matchScores]
   );
 
   const table = useReactTable({

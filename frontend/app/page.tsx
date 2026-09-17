@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { RefreshCw, Radar, AlertCircle, Wifi, WifiOff } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { RefreshCw, Radar, AlertCircle, Wifi, WifiOff, UserCircle2, X } from "lucide-react";
 import { clsx } from "clsx";
 import { useInternships, triggerRefresh } from "@/lib/api";
 import type { JobListing } from "@/lib/api";
+import { matchAllJobs } from "@/lib/matcher";
+import type { CandidateProfile, MatchScore } from "@/lib/matcher";
 import JobTable from "@/components/JobTable";
 import FilterBar, { type FilterState } from "@/components/FilterBar";
+import ResumeUpload from "@/components/ResumeUpload";
 
 // ── Loading skeleton ──────────────────────────────────────────────────────────
 function Skeleton() {
@@ -33,26 +36,114 @@ function SourceStat({ label, count, color }: { label: string; count: number; col
   );
 }
 
+// ── Profile summary card ──────────────────────────────────────────────────────
+function ProfileCard({
+  profile,
+  onClear,
+}: {
+  profile: CandidateProfile;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-blue-900 bg-blue-950/30 px-4 py-3">
+      <UserCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-blue-400" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-slate-200">
+          Resume loaded · {profile.skills.length} skills · {profile.roles.length} target roles
+        </p>
+        {profile.skills.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {profile.skills.slice(0, 10).map((s) => (
+              <span
+                key={s}
+                className="rounded bg-blue-900/50 px-1.5 py-0.5 text-[11px] text-blue-300"
+              >
+                {s}
+              </span>
+            ))}
+            {profile.skills.length > 10 && (
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-500">
+                +{profile.skills.length - 10} more
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={onClear}
+        className="ml-2 shrink-0 text-slate-500 hover:text-slate-300"
+        title="Remove resume"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+// ── Location helpers ──────────────────────────────────────────────────────────
+const LOCATION_PATTERNS: Record<string, RegExp> = {
+  Remote: /\bremote\b/i,
+  Singapore: /\bsingapore\b/i,
+  India: /\bindia\b/i,
+  "United States": /\b(usa?|united states|new york|san francisco|seattle|boston|austin|chicago|los angeles)\b/i,
+  "United Kingdom": /\b(uk|united kingdom|england|london|scotland|wales)\b/i,
+  Canada: /\b(canada|toronto|vancouver|montreal|calgary)\b/i,
+  Europe: /\b(europe|european|germany|berlin|france|paris|netherlands|sweden|denmark|ireland|finland|norway|poland|spain|madrid|portugal|lisbon)\b/i,
+};
+
+function matchesLocation(job: JobListing, location: string): boolean {
+  if (location === "All") return true;
+  if (location === "Remote") return job.work_mode === "Remote";
+  const pattern = LOCATION_PATTERNS[location];
+  if (!pattern) return true;
+  return pattern.test(job.location);
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function Home() {
   const { data, error, isLoading, isValidating, mutate } = useInternships();
   const [refreshing, setRefreshing] = useState(false);
 
+  // Resume state
+  const [showUpload, setShowUpload] = useState(true);
+  const [profile, setProfile] = useState<CandidateProfile | null>(null);
+  const [matchScores, setMatchScores] = useState<Map<string, MatchScore>>(new Map());
+
+  // Filters (added location field)
   const [filters, setFilters] = useState<FilterState>({
     search: "",
     workMode: "All",
     source: "All",
     minScore: 0,
+    location: "All",
   });
 
   const handleFilterChange = useCallback((next: Partial<FilterState>) => {
     setFilters((prev) => ({ ...prev, ...next }));
   }, []);
 
-  // Client-side filter application
+  // Re-compute match scores whenever profile or job data changes
+  useEffect(() => {
+    if (profile && data?.jobs) {
+      setMatchScores(matchAllJobs(profile, data.jobs));
+    } else {
+      setMatchScores(new Map());
+    }
+  }, [profile, data]);
+
+  // Sort + filter jobs
   const filteredJobs = useMemo((): JobListing[] => {
     if (!data?.jobs) return [];
-    let jobs = data.jobs;
+
+    // When resume is loaded, sort by match score desc; otherwise keep backend order (tech_score desc)
+    let jobs =
+      profile && matchScores.size > 0
+        ? [...data.jobs].sort((a, b) => {
+            const sa = matchScores.get(a.id)?.overall ?? 0;
+            const sb = matchScores.get(b.id)?.overall ?? 0;
+            return sb - sa;
+          })
+        : data.jobs;
 
     if (filters.search) {
       const q = filters.search.toLowerCase();
@@ -72,9 +163,12 @@ export default function Home() {
     if (filters.minScore > 0) {
       jobs = jobs.filter((j) => j.tech_score >= filters.minScore);
     }
+    if (filters.location !== "All") {
+      jobs = jobs.filter((j) => matchesLocation(j, filters.location));
+    }
 
     return jobs;
-  }, [data, filters]);
+  }, [data, filters, profile, matchScores]);
 
   // Stats by source
   const sourceCounts = useMemo(() => {
@@ -96,6 +190,17 @@ export default function Home() {
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const handleProfileUploaded = (p: CandidateProfile) => {
+    setProfile(p);
+    setShowUpload(false);
+  };
+
+  const handleClearProfile = () => {
+    setProfile(null);
+    setMatchScores(new Map());
+    setShowUpload(true);
   };
 
   const scrapedAt = data?.scraped_at
@@ -159,6 +264,16 @@ export default function Home() {
         </div>
       </div>
 
+      {/* ── Resume upload gate ── */}
+      {showUpload && !profile && (
+        <ResumeUpload onUpload={handleProfileUploaded} onSkip={() => setShowUpload(false)} />
+      )}
+
+      {/* ── Profile summary card (shown after upload) ── */}
+      {profile && (
+        <ProfileCard profile={profile} onClear={handleClearProfile} />
+      )}
+
       {/* ── Source stats bar ── */}
       {data && (
         <div className="flex flex-wrap gap-2">
@@ -206,11 +321,30 @@ export default function Home() {
         totalCount={data?.jobs.length ?? 0}
       />
 
+      {/* ── No results helper ── */}
+      {!isLoading && data && filteredJobs.length === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-900 py-12 text-center text-slate-500">
+          <span className="text-3xl">🔍</span>
+          <p className="mt-3 text-sm font-medium text-slate-300">No internships match your filters.</p>
+          <p className="mt-1 text-xs text-slate-500">Try:</p>
+          <ul className="mt-1 text-xs text-slate-500 space-y-0.5">
+            <li>• Selecting <strong className="text-slate-400">All locations</strong></li>
+            <li>• Selecting <strong className="text-slate-400">Remote</strong> work mode</li>
+            <li>• Lowering the score filter</li>
+            {profile && <li>• Uploading an updated resume with more skills</li>}
+          </ul>
+        </div>
+      )}
+
       {/* ── Content ── */}
       {isLoading ? (
         <Skeleton />
-      ) : data ? (
-        <JobTable data={filteredJobs} globalFilter={filters.search} />
+      ) : data && filteredJobs.length > 0 ? (
+        <JobTable
+          data={filteredJobs}
+          globalFilter={filters.search}
+          matchScores={matchScores.size > 0 ? matchScores : undefined}
+        />
       ) : null}
 
       {/* ── Footer ── */}
