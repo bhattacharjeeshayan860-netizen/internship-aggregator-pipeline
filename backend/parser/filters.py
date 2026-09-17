@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 # ── Regex patterns ───────────────────────────────────────────────────────────
 
 INTERNSHIP_RE = re.compile(
-    r"\b(intern(ship)?|co[\-\s]?op|placement|trainee|apprentice)\b",
+    r"\b(intern(ship)?|co[‑\-\s]?op|placement|trainee|apprentice)\b",
     re.IGNORECASE,
 )
 
@@ -36,6 +36,54 @@ SPAM_DOMAINS = frozenset({
     "clickfunnels.com", "wix.com", "wordpress.com", "blogspot.com",
     "forms.gle", "docs.google.com",
 })
+
+# ── Non-technical role filter ─────────────────────────────────────────────────
+# Roles that contain "intern" in the title but are NOT DS/ML/SWE-relevant.
+# Match means REJECT the job.
+
+NON_TECH_TITLE_RE = re.compile(
+    r"\b("
+    # Finance / Accounting
+    r"account(ing|ant|s\s+payable|s\s+receivable)?(?!\s+engineer|\s+data)"
+    r"|audit|tax\s+(operation|intern|analyst|coord)"
+    r"|controller|bookkeep|strategic\s+finance|financial\s+planning"
+    r"|finance\s+operation|treasury|actuari"
+    # Sales / Marketing / Comms
+    r"|sales(?!\s+engineer)"
+    r"|marketing(?!\s+(tech|analytics|data|engineer))"
+    r"|business\s+development|growth\s+market|growth\s+hack"
+    r"|public\s+relations|\bpr\s+intern"
+    r"|communications\s+intern|copywriting|content\s+(writer|creator|market)"
+    # HR / People / Recruiting
+    r"|\bhr\s+(intern|analyst)|human\s+resources"
+    r"|people\s+(partner|experience)|employee\s+(experience|workplace)"
+    r"|recruiter|recruiting\s+coord|talent\s+(acqui|coord|recruit)"
+    r"|learning\s+(&|and)\s+development|\bl&d\b"
+    # Design (non-product / non-UX-engineering)
+    r"|brand\s+design|graphic\s+design|visual\s+design|motion\s+design"
+    # Legal / Compliance (non-security)
+    r"|legal\s+intern|paralegal|general\s+counsel"
+    r"|compliance\s+specialist|compliance\s+coord"
+    # Non-tech Operations
+    r"|vendor\s+manag|supply\s+chain|procurement"
+    r"|brokerage\s+operation|crypto\s+operation|crypto\s+partnership"
+    r"|futures\s+.*operation|prediction\s+market\s+operation"
+    r"|brokerage\s+risk\s+analyst"  # pure ops risk, not quant
+    # Admin / Coordination
+    r"|early\s+talent\s+recruiting|emerging\s+talent\s+recruit"
+    r"|admin(?:istrative)?\s+intern|office\s+manager|executive\s+assistant"
+    r"|it\s+support\s+technician"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Full-time seniority levels — reject anything starting with these
+SENIORITY_START_RE = re.compile(
+    r"^(senior|sr\.|lead|principal|staff|director|manager|"
+    r"head\s+of|vp\b|vice\s+president|president|cto|ceo|coo)\b",
+    re.IGNORECASE,
+)
+
 
 # ── Filter functions ─────────────────────────────────────────────────────────
 
@@ -112,6 +160,18 @@ def has_valid_domain(url: str) -> bool:
         return False
 
 
+def is_relevant_domain(title: str) -> bool:
+    """
+    Reject roles that are clearly non-technical (accounting, sales, HR, etc.)
+    or full-time seniority roles that slip through the internship filter.
+    """
+    if SENIORITY_START_RE.search(title.strip()):
+        return False
+    if NON_TECH_TITLE_RE.search(title):
+        return False
+    return True
+
+
 def determine_work_mode(location: str, description: str = "") -> str:
     """Classify work mode from location string and description context."""
     text = f"{location} {description[:500]}".lower()
@@ -125,7 +185,7 @@ def determine_work_mode(location: str, description: str = "") -> str:
 def passes_all_filters(job: dict) -> bool:
     """
     Master filter gate — returns True only if the job passes every check:
-    internship type, paid, geography, English, valid domain.
+    internship type, paid, geography, English, valid domain, relevant domain.
     """
     title = job.get("title", "")
     description = job.get("description", "")
@@ -138,4 +198,5 @@ def passes_all_filters(job: dict) -> bool:
         and is_valid_geo(location, description)
         and is_english(title + " " + description[:300])
         and has_valid_domain(apply_url)
+        and is_relevant_domain(title)
     )

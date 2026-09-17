@@ -13,43 +13,43 @@ logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT = 10
 
-# Verified Ashby slugs
+# Verified Ashby slugs — focus on companies known for internship programs
 ASHBY_COMPANIES: list[str] = [
-    # ── Cutting-edge AI Labs ───────────────────────────────────────────────
+    # ── AI Labs (most active on Ashby) ────────────────────────────────────
     "mistral",
     "perplexity",
-    "imbue",
     "character",
     "runway",
-    "together-computer",
-    "modal-labs",
-    "anyscale",
     "pika",
-    "suno",
+    "elevenlabs",
     "cohere",
+    "imbue",
+    "suno",
     # ── MLOps / LLMOps ────────────────────────────────────────────────────
     "weights-biases",
-    "evidently-ai",
-    "whylabs",
+    "replicate",
+    "modal-labs",
+    "anyscale",
     "bentoml",
-    "truera",
+    "braintrust",
+    "baseten",
     "arize",
     # ── Dev Tools / Infra ──────────────────────────────────────────────────
     "temporal",
-    "buf",
-    "turso",
-    "tinybird",
-    "airplane",
-    "braintrust",
-    "baseten",
-    # ── Product / SaaS ─────────────────────────────────────────────────────
     "linear",
     "retool",
+    "tinybird",
     "liveblocks",
-    # ── UK / Europe 🇬🇧🇪🇺 ────────────────────────────────────────────────
-    "causaly",
+    "airplane",
+    "together-computer",
+    # ── AI Research ────────────────────────────────────────────────────────
+    "evidently-ai",
+    "whylabs",
+    "truera",
     # ── Singapore 🇸🇬 ─────────────────────────────────────────────────────
     "sea-group",
+    # ── UK / Europe 🇬🇧🇪🇺 ────────────────────────────────────────────────
+    "causaly",
 ]
 
 
@@ -85,10 +85,16 @@ class AshbyScraper(BaseScraper):
         if isinstance(location, dict):
             location = location.get("name", "")
 
+        title = job.get("title", "")
+        # Ashby sometimes stores employment type separately
+        employment_type = job.get("employmentType", "") or job.get("type", "")
+        if employment_type and employment_type.lower() not in title.lower():
+            title = f"{title} - {employment_type}"
+
         return {
             "source": "ashby",
             "company": company_slug.replace("-", " ").title(),
-            "title": job.get("title", ""),
+            "title": title,
             "location": location or "",
             "apply_url": job.get("jobUrl") or job.get("externalLink", ""),
             "description": job.get("descriptionHtml") or job.get("description", ""),

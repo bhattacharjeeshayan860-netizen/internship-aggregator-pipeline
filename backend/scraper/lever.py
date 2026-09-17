@@ -13,57 +13,54 @@ logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT = 12
 
-# Verified Lever slugs
+# Verified Lever slugs — focus on companies with known active internship programs
 LEVER_COMPANIES: list[str] = [
-    # ── AI / ML ────────────────────────────────────────────────────────────
-    "perplexity-ai",
-    "covariant",
-    "synthesis-ai",
-    "contextual-ai",
-    "kensho",
-    "primer",
-    "imbue",
-    # ── Developer Tools ────────────────────────────────────────────────────
-    "vercel",
-    "linear",
-    "retool",
-    "descript",
-    "loom",
-    "replit",
-    "temporal",
-    "buf",
-    "railway",
-    "turso",
-    "prisma",
-    # ── Data / Analytics ───────────────────────────────────────────────────
-    "posthog",
-    "rudderstack",
-    "tinybird",
-    "census",
-    "hightouch",
-    # ── Product / SaaS ─────────────────────────────────────────────────────
-    "amplitude",
-    "mixpanel",
-    "latticehq",
-    "carta",
+    # ── Large Tech / Growth-stage (high intern probability) ────────────────
+    "scale-ai",
+    "anduril",
+    "openai",          # OpenAI switched to Lever for some roles
+    "notion",
+    "figma",           # Figma is on both Greenhouse and Lever
     # ── Fintech ────────────────────────────────────────────────────────────
     "brex",
     "mercury",
     "ramp",
-    "pilot",
     "gusto",
-    # ── Canada 🇨🇦 ─────────────────────────────────────────────────────────
+    "carta",
+    "pilot",
+    "wealthsimple",
+    # ── AI / ML ────────────────────────────────────────────────────────────
+    "perplexity-ai",
+    "covariant",
     "cohere",
-    "properly",
-    # ── UK / Europe 🇬🇧🇪🇺 ────────────────────────────────────────────────
+    "kensho",
+    "contextual-ai",
+    # ── Data / Analytics ───────────────────────────────────────────────────
+    "amplitude",
+    "mixpanel",
+    "posthog",
+    "rudderstack",
+    "hightouch",
+    "census",
+    # ── Developer Tools ────────────────────────────────────────────────────
+    "vercel",
+    "replit",
+    "retool",
+    "linear",
+    "descript",
+    "loom",
+    "temporal",
+    "railway",
+    # ── UK / Europe ────────────────────────────────────────────────────────
     "monzo",
     "cleo",
     "tractable",
     "causaly",
     # ── Infrastructure ─────────────────────────────────────────────────────
     "grafana",
-    "neon",
     "cockroachdb",
+    "neon",
+    "latticehq",
 ]
 
 
@@ -97,13 +94,21 @@ class LeverScraper(BaseScraper):
     @staticmethod
     def _normalise(job: dict, company_slug: str) -> dict:
         categories = job.get("categories", {})
+        title = job.get("text", "")
+        commitment = categories.get("commitment", "")
+
+        # Many companies post "Software Engineer" with commitment="Internship".
+        # Fold commitment into title so the internship filter can detect it.
+        if commitment and commitment.lower() not in title.lower():
+            title = f"{title} - {commitment}"
+
         return {
             "source": "lever",
             "company": company_slug.replace("-", " ").title(),
-            "title": job.get("text", ""),
+            "title": title,
             "location": categories.get("location", ""),
             "apply_url": job.get("hostedUrl") or job.get("applyUrl", ""),
             "description": job.get("descriptionPlain") or job.get("description", ""),
             "posted_date": "",
-            "commitment": categories.get("commitment", ""),
+            "commitment": commitment,
         }

@@ -96,11 +96,13 @@ KEYWORDS: dict[str, int] = {
 SCORE_CEILING = 50
 
 # ── Stipend extraction ───────────────────────────────────────────────────────
+# Currency symbol is REQUIRED — bare numbers are never treated as compensation.
+# This prevents job IDs, day counts, etc. from being misread as pay rates.
 STIPEND_RE = re.compile(
-    r"(?P<currency>\$|£|€|CAD|USD|GBP|SGD|AUD|INR)?\s*"
-    r"(?P<amount>\d[\d,]{1,6})"
-    r"(?:\s*[-–]\s*(?:\$|£|€|CAD|USD|GBP|SGD|AUD|INR)?\s*\d[\d,]{1,6})?"  # optional range
-    r"\s*/?\s*(?P<period>hr|hour|hourly|month|monthly|week|weekly|year|yearly|annum)?",
+    r"(?P<currency>\$|£|€|CAD|USD|GBP|SGD|AUD|INR)\s*"
+    r"(?P<amount>\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+)"
+    r"(?:\s*[-–]\s*(?:\$|£|€|CAD|USD|GBP|SGD|AUD|INR)?\s*\d[\d,]*(?:\.\d{1,2})?)?"
+    r"\s*(?:per\s+)?(?P<period>hr|hour|hourly|month|monthly|week|weekly|year|yearly|annum|annually)?\b",
     re.IGNORECASE,
 )
 
@@ -144,26 +146,32 @@ def score_job(job: dict) -> ScoredJob:
 def _extract_stipend(description: str) -> str:
     """
     Attempt to extract a human-readable compensation estimate from the description.
-    Looks for currency + number + optional period patterns in the first 2 000 chars.
+    Only matches patterns that include a currency symbol (e.g. $50/hr, £30,000/yr).
+    Bare numbers are ignored to prevent false positives from job IDs and counts.
     """
     if not description:
         return "Not specified"
 
     for m in STIPEND_RE.finditer(description[:2000]):
-        currency = m.group("currency") or "$"
+        currency = m.group("currency")
+        if not currency:
+            continue  # skip bare numbers — currency symbol required
+
         raw_amount = m.group("amount").replace(",", "")
         period = (m.group("period") or "").lower()
 
         try:
-            val = int(raw_amount)
+            val = int(float(raw_amount))
         except ValueError:
             continue
 
-        if period in ("hr", "hour", "hourly") or 10 <= val <= 250:
+        # Classify by explicit period keyword first, then by magnitude
+        if period in ("hr", "hour", "hourly") or (not period and 10 <= val <= 300):
             return f"~{currency}{val}/hr"
-        if period in ("month", "monthly") or 1_000 <= val <= 20_000:
+        if period in ("month", "monthly") or (not period and 1_000 <= val <= 25_000):
             return f"~{currency}{val}/mo"
-        if period in ("year", "yearly", "annum") or 20_000 <= val <= 300_000:
+        if period in ("year", "yearly", "annum", "annually") or (not period and 25_000 <= val <= 400_000):
             return f"~{currency}{val}/yr"
 
     return "Not specified"
+
